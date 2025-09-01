@@ -3,20 +3,23 @@
  * The sizes of the arrays are returned as *returnColumnSizes array.
  * Note: Both returned array and *columnSizes array must be malloced, assume caller calls free().
  */
-#define TABLE_SIZE 1007 // Bigger size to reduce collisions
 
-struct Node
-{
-    char *key;      // sorted string (hash key)
-    char *original; // original string
+#define TABLE_SIZE 1007
+
+struct Node {
+    char *original;
     struct Node *next;
 };
 
-struct Node *hashTable[TABLE_SIZE] = {NULL};
+struct HashEntry {
+    char *key;
+    struct Node *list;
+    struct HashEntry *next;
+};
 
-// Simple hash function (djb2 variant)
-unsigned int hash(const char *key)
-{
+struct HashEntry* hashTable[TABLE_SIZE] = {NULL};
+
+unsigned int hash(const char *key) {
     unsigned long hashValue = 5381;
     int c;
     while ((c = *key++))
@@ -24,28 +27,12 @@ unsigned int hash(const char *key)
     return hashValue % TABLE_SIZE;
 }
 
-// Insert into hash table (grouping by sorted key)
-void insert(const char *sortedKey, const char *original)
-{
-    unsigned int index = hash(sortedKey);
-    struct Node *newNode = malloc(sizeof(struct Node));
-    newNode->key = strdup(sortedKey);
-    newNode->original = strdup(original);
-    newNode->next = hashTable[index];
-    hashTable[index] = newNode;
-}
-
-// Sort string helper
-char *sortString(const char *s)
-{
+char* sortString(const char *s) {
     char *sorted = strdup(s);
     int len = strlen(sorted);
-    for (int i = 0; i < len - 1; i++)
-    {
-        for (int j = i + 1; j < len; j++)
-        {
-            if (sorted[i] > sorted[j])
-            {
+    for (int i = 0; i < len - 1; i++) {
+        for (int j = i + 1; j < len; j++) {
+            if (sorted[i] > sorted[j]) {
                 char tmp = sorted[i];
                 sorted[i] = sorted[j];
                 sorted[j] = tmp;
@@ -55,53 +42,77 @@ char *sortString(const char *s)
     return sorted;
 }
 
-// Main grouping function
-char ***groupAnagrams(char **strs, int strsSize, int *returnSize, int **returnColumnSizes)
-{
-    // Clear hash table
-    for (int i = 0; i < TABLE_SIZE; i++)
-        hashTable[i] = NULL;
+void insert(const char *sortedKey, const char *original) {
+    unsigned int index = hash(sortedKey);
+    struct HashEntry *entry = hashTable[index];
 
-    // Insert each string into hash table using sorted key
-    for (int i = 0; i < strsSize; i++)
-    {
-        char *sortedKey = sortString(strs[i]);
-        insert(sortedKey, strs[i]);
-        free(sortedKey); // key is duplicated in insert, so free here
+    while (entry) {
+        if (strcmp(entry->key, sortedKey) == 0) {
+            break; // Found existing key
+        }
+        entry = entry->next;
     }
 
-    // Allocate output
+    if (!entry) {
+        entry = malloc(sizeof(struct HashEntry));
+        entry->key = strdup(sortedKey);
+        entry->list = NULL;
+        entry->next = hashTable[index];
+        hashTable[index] = entry;
+    }
+
+    struct Node *node = malloc(sizeof(struct Node));
+    node->original = strdup(original);
+    node->next = entry->list;
+    entry->list = node;
+}
+
+char*** groupAnagrams(char** strs, int strsSize, int* returnSize, int** returnColumnSizes) {
+    // Clear table
+    for (int i = 0; i < TABLE_SIZE; i++) hashTable[i] = NULL;
+
+    // Insert strings
+    for (int i = 0; i < strsSize; i++) {
+        char *sortedKey = sortString(strs[i]);
+        insert(sortedKey, strs[i]);
+        free(sortedKey);
+    }
+
+    // Collect results
     char ***result = NULL;
     *returnColumnSizes = NULL;
     int groups = 0;
 
-    // Traverse hash table to collect groups
-    for (int i = 0; i < TABLE_SIZE; i++)
-    {
-        struct Node *temp = hashTable[i];
-        if (temp)
-        {
-            // Gather all in this bucket
+    for (int i = 0; i < TABLE_SIZE; i++) {
+        struct HashEntry *entry = hashTable[i];
+        while (entry) {
+            // Count items
             int count = 0;
-            char **group = NULL;
-
-            while (temp)
-            {
-                group = realloc(group, sizeof(char *) * (count + 1));
-                group[count] = strdup(temp->original);
+            struct Node *node = entry->list;
+            while (node) {
                 count++;
-                temp = temp->next;
+                node = node->next;
             }
 
-            result = realloc(result, sizeof(char **) * (groups + 1));
+            // Collect items
+            char **group = malloc(sizeof(char*) * count);
+            node = entry->list;
+            for (int j = 0; j < count; j++) {
+                group[j] = node->original;
+                node = node->next;
+            }
+
+            result = realloc(result, sizeof(char**) * (groups + 1));
             result[groups] = group;
 
             *returnColumnSizes = realloc(*returnColumnSizes, sizeof(int) * (groups + 1));
             (*returnColumnSizes)[groups] = count;
 
             groups++;
+            entry = entry->next;
         }
     }
+
     *returnSize = groups;
     return result;
 }
